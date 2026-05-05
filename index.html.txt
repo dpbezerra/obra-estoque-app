@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Obra Estoque</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="manifest" href="manifest.json">
+</head>
+<body>
+
+    <div class="container">
+        <h1>📦 Obra Estoque</h1>
+
+        <div class="status-bar">
+            <span id="statusConexao">Verificando conexão...</span>
+            <span id="statusSync"></span>
+        </div>
+
+        <label>Selecionar Obra:</label>
+        <select id="obraSelect"></select>
+
+        <label>Buscar Material:</label>
+        <input type="text" id="buscaMaterial" placeholder="Digite código ou nome do material...">
+
+        <div id="resultadoBusca"></div>
+
+        <div id="formMovimentacao" style="display:none;">
+            <h3 id="materialSelecionado"></h3>
+
+            <label>Tipo:</label>
+            <select id="tipoMov">
+                <option value="E">Entrada</option>
+                <option value="S">Saída</option>
+            </select>
+
+            <label>Quantidade:</label>
+            <input type="number" id="quantidade" placeholder="Quantidade">
+
+            <label>Preço Unitário:</label>
+            <input type="number" id="preco" placeholder="Preço unitário">
+
+            <label>Observações:</label>
+            <input type="text" id="obs" placeholder="Observações">
+
+            <button onclick="salvarMovimentacao()">Salvar Movimentação</button>
+        </div>
+
+        <hr>
+
+        <h2>🕘 Histórico Recente</h2>
+        <div id="historico"></div>
+    </div>
+
+    <script src="https://unpkg.com/dexie@3.2.4/dist/dexie.js"></script>
+    <script src="app.js"></script>
+
+    <script>
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('./sw.js');
+}
+</script>
+
+</body>
+</html>
