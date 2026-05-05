@@ -9,6 +9,8 @@ db.version(1).stores({
 });
 
 let materialAtual = null;
+let obrasMap = {};
+let salvando = false;
 
 window.onload = async function(){
     atualizarStatusConexao();
@@ -33,6 +35,8 @@ async function carregarObras(){
         select.innerHTML = "";
 
         obras.forEach(o=>{
+            obrasMap[o[0]] = o[1];
+
             let op = document.createElement("option");
             op.value = o[0];
             op.textContent = o[1];
@@ -53,23 +57,24 @@ async function carregarMateriais(){
 
         for(let m of mats){
             await db.materiaisCache.put({
-                codigo:m[0],
-                descricao:m[1],
-                categoria:m[2],
-                unidade:m[3]
+                codigo:String(m[0]),
+                descricao:String(m[1]),
+                categoria:String(m[2] || ''),
+                unidade:String(m[3] || '')
             });
         }
 
     }catch(e){
-        console.log("materiais carregados do cache local");
+        console.log("Materiais carregados do cache local");
     }
 }
 
 document.getElementById("buscaMaterial").addEventListener("keyup", async function(){
-    let termo = this.value.toLowerCase();
+    let termo = this.value.toLowerCase().trim();
+    let resultado = document.getElementById("resultadoBusca");
 
     if(termo.length < 1){
-        document.getElementById("resultadoBusca").innerHTML = "";
+        resultado.innerHTML = "";
         return;
     }
 
@@ -80,38 +85,57 @@ document.getElementById("buscaMaterial").addEventListener("keyup", async functio
         m.descricao.toLowerCase().includes(termo)
     ).slice(0,15);
 
-    let html = "";
+    resultado.innerHTML = "";
 
     filtrados.forEach(m=>{
-        html += `<div class="itemBusca" onclick="selecionarMaterial('${m.codigo}','${m.descricao}','${m.unidade}')">
-                    ${m.codigo} - ${m.descricao} (${m.unidade})
-                 </div>`;
-    });
+        const div = document.createElement("div");
+        div.className = "itemBusca";
+        div.textContent = `${m.codigo} - ${m.descricao} (${m.unidade})`;
 
-    document.getElementById("resultadoBusca").innerHTML = html;
+        div.addEventListener("click", function(){
+            selecionarMaterial(m.codigo, m.descricao, m.unidade);
+        });
+
+        resultado.appendChild(div);
+    });
 });
 
 function selecionarMaterial(cod,desc,un){
     materialAtual = {codigo:cod, descricao:desc, unidade:un};
+
     document.getElementById("materialSelecionado").innerText = `${cod} - ${desc} (${un})`;
     document.getElementById("formMovimentacao").style.display = "block";
     document.getElementById("resultadoBusca").innerHTML = "";
+    document.getElementById("buscaMaterial").value = "";
 }
 
 async function salvarMovimentacao(){
+    if(salvando) return;
+
     if(!materialAtual){
         alert("Selecione um material");
         return;
     }
 
+    let quantidade = document.getElementById("quantidade").value;
+
+    if(!quantidade || Number(quantidade) <= 0){
+        alert("Informe a quantidade");
+        return;
+    }
+
+    salvando = true;
+
     let mov = {
         chave: CHAVE,
         id_obra: document.getElementById("obraSelect").value,
+        nome_obra: obrasMap[document.getElementById("obraSelect").value] || '',
         cod_insumo: materialAtual.codigo,
+        desc_insumo: materialAtual.descricao,
         tipo: document.getElementById("tipoMov").value,
-        quantidade: document.getElementById("quantidade").value,
-        preco_unit: document.getElementById("preco").value,
-        obs: document.getElementById("obs").value
+        quantidade: quantidade,
+        preco_unit: document.getElementById("preco").value || 0,
+        obs: document.getElementById("obs").value || ''
     };
 
     if(navigator.onLine){
@@ -129,13 +153,14 @@ async function salvarMovimentacao(){
             alert("Movimentação salva com sucesso");
         }catch(e){
             await db.filaSync.add({...mov,data:new Date().toLocaleString()});
-            alert("Sem internet estável. Ficou pendente.");
+            alert("Internet instável. Ficou pendente para sincronizar.");
         }
     }else{
         await db.filaSync.add({...mov,data:new Date().toLocaleString()});
         alert("Offline. Movimentação guardada.");
     }
 
+    salvando = false;
     limparFormulario();
     await carregarHistorico();
 }
@@ -154,7 +179,7 @@ async function sincronizarPendentes(){
             await db.filaSync.delete(p.id);
 
         }catch(e){
-            console.log("ainda sem sincronizar");
+            console.log("Ainda existem pendências");
         }
     }
 
@@ -169,8 +194,8 @@ async function carregarHistorico(){
     hist.forEach(h=>{
         html += `<div class="cardHistorico">
                     <b>${h.data}</b><br>
-                    Obra: ${h.id_obra}<br>
-                    Material: ${h.cod_insumo}<br>
+                    Obra: ${h.nome_obra || h.id_obra}<br>
+                    Material: ${h.cod_insumo} - ${h.desc_insumo || ''}<br>
                     Tipo: ${h.tipo == 'E' ? 'Entrada' : 'Saída'}<br>
                     Quantidade: ${h.quantidade}<br>
                     Preço: R$ ${h.preco_unit}<br>
@@ -182,6 +207,8 @@ async function carregarHistorico(){
 }
 
 function limparFormulario(){
+    materialAtual = null;
+    document.getElementById("materialSelecionado").innerText = "";
     document.getElementById("quantidade").value = "";
     document.getElementById("preco").value = "";
     document.getElementById("obs").value = "";
