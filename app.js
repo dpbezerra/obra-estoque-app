@@ -1,481 +1,274 @@
-const API_URL = 'https://script.google.com/macros/s/AKfycbyJ-6pGpbsIfZTHuMSz-PgezoziZSYZjCy5Nsd5MYHU1wn941915PnT2C92Vb2It1R8/exec';
-
+const API_URL = 'https://script.google.com/macros/s/AKfycbyJ-6pGpbslfZTHuMSz-PgezoziZSYZjCy5Nsd5MYHU1wn941915PnT2C92Vb2lt1R8/exec';
 const CHAVE = 'obra123teste';
 
+// Configuração do Banco de Dados Offline (Dexie.js)
 const db = new Dexie("ObraEstoqueDB");
-
 db.version(1).stores({
-    filaSync: '++id,data',
+    filaSync: '++id, data',
     materiaisCache: 'codigo',
     obrasCache: 'id',
-    historicoLocal: '++id,data'
+    historicoLocal: '++id, data'
 });
 
 let materialAtual = null;
 
-window.onload = async function(){
-
+// ==========================================
+// 1. INICIALIZAÇÃO (Tudo em Paralelo)
+// ==========================================
+document.addEventListener("DOMContentLoaded", async () => {
     atualizarStatusConexao();
-
-    window.addEventListener(
-        'online',
-        atualizarStatusConexao
-    );
-
-    window.addEventListener(
-        'offline',
-        atualizarStatusConexao
-    );
-
-    window.addEventListener(
-        'online',
-        sincronizarPendentes
-    );
-
+    window.addEventListener('online', atualizarStatusConexao);
+    window.addEventListener('offline', atualizarStatusConexao);
+    
+    // Dispara tudo junto para carregar voando [cite: 58, 59, 60]
     await Promise.all([
         carregarObras(),
         carregarMateriais(),
-        carregarHistorico()
+        carregarHistoricoCompleto()
     ]);
 
-};
+    sincronizarPendentes(); 
+});
 
-function atualizarStatusConexao(){
-
-    document.getElementById(
-        "statusConexao"
-    ).innerText =
-        navigator.onLine
-            ? "🟢 Online"
-            : "🔴 Offline";
-
-}
-
-async function carregarObras(){
-
-    try{
-
-        // CACHE PRIMEIRO
-        let obrasLocal =
-            await db.obrasCache.toArray();
-
-        if(obrasLocal.length > 0){
-
-            preencherObras(obrasLocal);
-
-        }
-
-        // ONLINE DEPOIS
-        let resp = await fetch(
-            `${API_URL}?chave=${CHAVE}&action=obras`
-        );
-
-        let obras = await resp.json();
-
-        await db.obrasCache.clear();
-
-        for(let o of obras){
-
-            await db.obrasCache.put({
-                id: String(o[0]),
-                nome: String(o[1])
-            });
-
-        }
-
-        let obrasAtualizadas =
-            await db.obrasCache.toArray();
-
-        preencherObras(obrasAtualizadas);
-
-    }catch(e){
-
-        console.log(
-            "Usando cache local das obras"
-        );
-
+function atualizarStatusConexao() {
+    const statusEl = document.getElementById("statusConexao");
+    if (navigator.onLine) {
+        statusEl.textContent = "🟢 Online";
+        statusEl.style.color = "green";
+        sincronizarPendentes();
+    } else {
+        statusEl.textContent = "🔴 Offline";
+        statusEl.style.color = "red";
     }
 }
 
-function preencherObras(obras){
+// ==========================================
+// 2. CORREÇÃO: CARREGAMENTO DE OBRAS (Stale-While-Revalidate)
+// ==========================================
+async function carregarObras() {
+    // 1. Puxa do cache local primeiro (Instantâneo) [cite: 73, 74, 75]
+    const obrasLocais = await db.obrasCache.toArray();
+    if (obrasLocais.length > 0) {
+        renderizarObras(obrasLocais);
+    }
 
-    let select =
-        document.getElementById("obraSelect");
+    // 2. Busca online silenciosamente no fundo para manter atualizado [cite: 73, 74, 75]
+    if (navigator.onLine) {
+        try {
+            const res = await fetch(`${API_URL}?chave=${CHAVE}&action=obras`);
+            const obras = await res.json();
+            
+            await db.obrasCache.clear();
+            const obrasParaCache = obras.map(o => ({ id: o[0], nome: o[1] }));
+            await db.obrasCache.bulkAdd(obrasParaCache);
+            
+            renderizarObras(obrasParaCache);
+        } catch (e) {
+            console.log("Erro ao buscar obras online, seguindo com o cache.", e);
+        }
+    }
+}
 
-    select.innerHTML = "";
-
-    obras.forEach(o=>{
-
-        let op =
-            document.createElement("option");
-
-        op.value = o.id;
-
-        op.textContent = o.nome;
-
-        select.appendChild(op);
-
+function renderizarObras(obras) {
+    const selectObra = document.getElementById("obraSelect");
+    selectObra.innerHTML = "";
+    obras.forEach(o => {
+        let option = document.createElement("option");
+        option.value = o.id;
+        option.textContent = o.nome;
+        selectObra.appendChild(option);
     });
-
 }
 
-async function carregarMateriais(){
-
-    try{
-
-        let resp = await fetch(
-            `${API_URL}?chave=${CHAVE}&action=insumos`
-        );
-
-        let mats = await resp.json();
-
-        await db.materiaisCache.clear();
-
-        for(let m of mats){
-
-            await db.materiaisCache.put({
-
-                codigo: String(m[0] || ''),
-
-                descricao: String(m[1] || ''),
-
+// ==========================================
+// CARREGAMENTO DE MATERIAIS
+// ==========================================
+async function carregarMateriais() {
+    if (navigator.onLine) {
+        try {
+            const res = await fetch(`${API_URL}?chave=${CHAVE}&action=materiais`);
+            const mats = await res.json();
+            await db.materiaisCache.clear();
+            const matsParaCache = mats.map(m => ({
+                codigo: String(m[0]),
+                descricao: String(m[1]),
                 categoria: String(m[2] || ''),
-
                 unidade: String(m[3] || '')
-
-            });
-
+            }));
+            await db.materiaisCache.bulkAdd(matsParaCache);
+        } catch (e) {
+            console.log("Sem internet para atualizar materiais. Usando cache.", e);
         }
-
-    }catch(e){
-
-        console.log(
-            "Materiais carregados do cache local"
-        );
-
     }
 }
 
-document
-.getElementById("buscaMaterial")
-.addEventListener(
-    "keyup",
-    async function(){
+// ==========================================
+// 3. CORREÇÃO: BUSCA DE MATERIAIS (Adeus Bug da Serra 10")
+// ==========================================
+document.getElementById("buscaMaterial").addEventListener("keyup", async function() {
+    let termo = this.value.toLowerCase().trim();
+    let divResultado = document.getElementById("resultadoBusca");
+    divResultado.innerHTML = "";
 
-        let termo =
-            this.value
-            .toLowerCase()
-            .trim();
+    if (termo.length < 2) return;
 
-        let resultado =
-            document.getElementById(
-                "resultadoBusca"
-            );
+    let todos = await db.materiaisCache.toArray();
+    let filtrados = todos.filter(m => 
+        m.descricao.toLowerCase().includes(termo) || 
+        m.codigo.toLowerCase().includes(termo)
+    ).slice(0, 15);
 
-        if(termo.length < 1){
+    filtrados.forEach(m => {
+        let div = document.createElement("div");
+        div.className = "itemBusca";
+        div.style.padding = "10px";
+        div.style.borderBottom = "1px solid #ccc";
+        div.style.cursor = "pointer";
+        
+        // Usar textContent impede que aspas quebrem o HTML [cite: 78, 79, 80]
+        div.textContent = `${m.codigo} - ${m.descricao} (${m.unidade})`;
+        
+        // Passar função via closure evita bugs de caracteres especiais no onclick [cite: 78, 79, 80]
+        div.onclick = () => selecionarMaterial(m.codigo, m.descricao);
+        
+        divResultado.appendChild(div);
+    });
+});
 
-            resultado.innerHTML = "";
-
-            return;
-
-        }
-
-        let todos =
-            await db.materiaisCache.toArray();
-
-        let filtrados =
-            todos.filter(m =>
-
-                m.codigo
-                .toLowerCase()
-                .includes(termo)
-
-                ||
-
-                m.descricao
-                .toLowerCase()
-                .includes(termo)
-
-            )
-            .slice(0,15);
-
-        resultado.innerHTML = "";
-
-        filtrados.forEach(m=>{
-
-            let div =
-                document.createElement("div");
-
-            div.className = "itemBusca";
-
-            // textContent resolve bug das aspas
-            div.textContent =
-                `${m.codigo} - ${m.descricao} (${m.unidade})`;
-
-            // clique seguro
-            div.addEventListener(
-                "click",
-                function(){
-
-                    selecionarMaterial(
-                        String(m.codigo),
-                        String(m.descricao),
-                        String(m.unidade)
-                    );
-
-                }
-            );
-
-            resultado.appendChild(div);
-
-        });
-
-    }
-);
-
-function selecionarMaterial(
-    cod,
-    desc,
-    un
-){
-
-    materialAtual = {
-        codigo: cod,
-        descricao: desc,
-        unidade: un
-    };
-
-    document.getElementById(
-        "materialSelecionado"
-    ).innerText =
-        `${cod} - ${desc} (${un})`;
-
-    document.getElementById(
-        "formMovimentacao"
-    ).style.display = "block";
-
-    document.getElementById(
-        "resultadoBusca"
-    ).innerHTML = "";
-
+function selecionarMaterial(codigo, descricao) {
+    materialAtual = { codigo, descricao };
+    document.getElementById("buscaMaterial").value = "";
+    document.getElementById("resultadoBusca").innerHTML = "";
+    document.getElementById("formMovimentacao").style.display = "block";
+    
+    document.getElementById("materialSelecionado").textContent = `Selecionado: ${descricao} (Cod: ${codigo})`;
 }
 
-async function salvarMovimentacao(){
+// ==========================================
+// SALVAR MOVIMENTAÇÃO (O Coração da Coisa)
+// ==========================================
+// Atribuir ao botão no HTML: onclick="salvarMovimentacao()"
+async function salvarMovimentacao() {
+    if (!materialAtual) return alert("Selecione um material!");
 
-    if(!materialAtual){
+    let quantidade = document.getElementById("quantidade").value;
+    let preco = document.getElementById("preco").value || 0;
+    let obs = document.getElementById("obs").value || "";
+    let tipo = document.getElementById("tipoMov").value;
+    let obra = document.getElementById("obraSelect").value;
+    let dataAtual = new Date().toLocaleString('pt-BR');
 
-        alert("Selecione um material");
-
-        return;
-
-    }
-
-    let quantidade =
-        document.getElementById(
-            "quantidade"
-        ).value;
-
-    if(
-        !quantidade ||
-        Number(quantidade) <= 0
-    ){
-
-        alert("Informe a quantidade");
-
-        return;
-
-    }
+    if (!quantidade || quantidade <= 0) return alert("Insira uma quantidade válida!");
 
     let mov = {
-
+        action: 'movimentacao',
         chave: CHAVE,
-
-        id_obra:
-            document.getElementById(
-                "obraSelect"
-            ).value,
-
-        cod_insumo:
-            materialAtual.codigo,
-
-        material_desc:
-            materialAtual.descricao,
-
-        tipo:
-            document.getElementById(
-                "tipoMov"
-            ).value,
-
-        quantidade:
-            quantidade,
-
-        preco_unit:
-            document.getElementById(
-                "preco"
-            ).value || 0,
-
-        obs:
-            document.getElementById(
-                "obs"
-            ).value || '',
-
-        data:
-            new Date()
-            .toLocaleString()
-
+        cod_obra: obra,
+        cod_insumo: materialAtual.codigo,
+        material_desc: materialAtual.descricao,
+        tipo: tipo,
+        quantidade: quantidade,
+        preco_unit: preco,
+        obs: obs,
+        data: dataAtual
     };
 
-    // salva no histórico imediatamente
-    await db.historicoLocal.add(mov);
+    document.getElementById("statusSync").textContent = "Salvando...";
 
-    // força IndexedDB concluir escrita
-    await db.historicoLocal.toArray();
-
-    if(navigator.onLine){
-
-        try{
-
-            await fetch(
-                API_URL,
-                {
-                    method:"POST",
-                    body: JSON.stringify(mov)
-                }
-            );
-
-            alert(
-                "Movimentação salva com sucesso"
-            );
-
-        }catch(e){
-
-            await db.filaSync.add(mov);
-
-            alert(
-                "Internet instável. Ficou pendente."
-            );
-
+    try {
+        if (navigator.onLine) {
+            await fetch(API_URL, {
+                method: "POST",
+                body: JSON.stringify(mov)
+            });
+            await db.historicoLocal.add(mov);
+            alert("Movimentação salva com sucesso no sistema!");
+        } else {
+            throw new Error("Estou offline");
         }
-
-    }else{
-
+    } catch (e) {
+        // Sem net ou falhou? Guarda na gaveta pra enviar depois [cite: 69]
         await db.filaSync.add(mov);
-
-        alert(
-            "Offline. Movimentação guardada."
-        );
-
+        alert("Sinal fraco! Guardado no celular para sincronizar depois.");
     }
 
     limparFormulario();
-
-    await carregarHistorico();
-
+    document.getElementById("statusSync").textContent = "";
+    await carregarHistoricoCompleto();
 }
 
-async function sincronizarPendentes(){
-
-    let pendentes =
-        await db.filaSync.toArray();
-
-    for(let p of pendentes){
-
-        try{
-
-            await fetch(
-                API_URL,
-                {
-                    method:"POST",
-                    body:JSON.stringify(p)
-                }
-            );
-
-            await db.filaSync.delete(p.id);
-
-        }catch(e){
-
-            console.log(
-                "Ainda existem pendências"
-            );
-
-        }
-
-    }
-
+function limparFormulario() {
+    materialAtual = null;
+    document.getElementById("formMovimentacao").style.display = "none";
+    document.getElementById("quantidade").value = "";
+    document.getElementById("preco").value = "";
+    document.getElementById("obs").value = "";
+    document.getElementById("materialSelecionado").textContent = "";
 }
 
-async function carregarHistorico(){
+// ==========================================
+// 4. CORREÇÃO: HISTÓRICO COM OFFLINE E ONLINE JUNTOS
+// ==========================================
+async function carregarHistoricoCompleto() {
+    // Puxa o que já foi e o que está preso na fila [cite: 58, 62]
+    const [historicoSalvo, itensOffline] = await Promise.all([
+        db.historicoLocal.toArray(),
+        db.filaSync.toArray()
+    ]);
 
-    let hist =
-        await db.historicoLocal
-        .orderBy('id')
-        .reverse()
-        .limit(20)
-        .toArray();
+    let historicoGeral = [...historicoSalvo, ...itensOffline];
+
+    // Inverte a ordem para os mais novos ficarem no topo (Dexie guarda o ID em ordem crescente)
+    historicoGeral.reverse(); 
+    let historicoFinal = historicoGeral.slice(0, 20);
 
     let html = "";
-
-    hist.forEach(h=>{
+    historicoFinal.forEach(h => {
+        let isOffline = itensOffline.some(offline => offline.id === h.id && offline.data === h.data);
+        let badgeOffline = isOffline ? ` <span style="color:darkorange; font-size:12px;">(Pendente Sync ⏳)</span>` : ` <span style="color:green; font-size:12px;">(Sincronizado ✅)</span>`;
+        let tipoStr = h.tipo === 'E' ? '<span style="color:green;font-weight:bold;">Entrada</span>' : '<span style="color:red;font-weight:bold;">Saída</span>';
 
         html += `
-
-        <div class="cardHistorico">
-
-            <b>${h.data}</b><br>
-
-            Material:
-            ${h.material_desc || h.cod_insumo}
-            <br>
-
-            Tipo:
-            ${
-                h.tipo == 'E'
-                ? 'Entrada'
-                : 'Saída'
-            }
-            <br>
-
-            Quantidade:
-            ${h.quantidade}
-            <br>
-
-            Preço:
-            R$ ${h.preco_unit}
-            <br>
-
-            Obs:
-            ${h.obs || '-'}
-
-        </div>
-
-        `;
-
+        <div class="cardHistorico" style="border:1px solid #ccc; padding:10px; margin-top:10px; border-radius:5px; background: #fafafa;">
+            <b style="font-size: 14px;">${h.data}</b> ${badgeOffline}<br>
+            <b>Insumo:</b> ${h.material_desc || h.cod_insumo}<br>
+            <b>Movimento:</b> ${tipoStr}<br>
+            <b>Qtd:</b> ${h.quantidade} | <b>Preço Unit:</b> R$ ${h.preco_unit}<br>
+            <b>Obs:</b> ${h.obs || '-'}
+        </div>`;
     });
 
-    document.getElementById(
-        "historico"
-    ).innerHTML = html;
-
+    document.getElementById("historico").innerHTML = html || "<p style='margin-top:10px;'>Nenhum histórico no momento.</p>";
 }
 
-function limparFormulario(){
+// ==========================================
+// SINCRONIZAÇÃO EM SEGUNDO PLANO
+// ==========================================
+async function sincronizarPendentes() {
+    if (!navigator.onLine) return;
+    
+    let pendentes = await db.filaSync.toArray();
+    if (pendentes.length === 0) return;
 
-    materialAtual = null;
+    document.getElementById("statusSync").textContent = `Sincronizando ${pendentes.length} itens...`;
 
-    document.getElementById(
-        "quantidade"
-    ).value = "";
-
-    document.getElementById(
-        "preco"
-    ).value = "";
-
-    document.getElementById(
-        "obs"
-    ).value = "";
-
-    document.getElementById(
-        "formMovimentacao"
-    ).style.display = "none";
-
+    for (let p of pendentes) {
+        try {
+            await fetch(API_URL, {
+                method: "POST",
+                body: JSON.stringify(p)
+            });
+            
+            let idOriginal = p.id;
+            delete p.id; // Evita conflito na nova tabela
+            
+            await db.historicoLocal.add(p);
+            await db.filaSync.delete(idOriginal); // Remove da fila do celular
+        } catch (e) {
+            console.log("Falha ao sincronizar item invisível", e);
+        }
+    }
+    
+    document.getElementById("statusSync").textContent = "";
+    carregarHistoricoCompleto();
 }
