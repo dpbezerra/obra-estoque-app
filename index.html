@@ -1,65 +1,136 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-br">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Obra Estoque</title>
-    <link rel="stylesheet" href="style.css">
-    <link rel="manifest" href="manifest.json">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Obra Estoque V3</title>
+
+<link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="style.css">
+
+<script src="https://unpkg.com/dexie@3.2.4/dist/dexie.js"></script>
 </head>
+
 <body>
 
-    <div class="container">
-        <h1>📦 Obra Estoque</h1>
+<div class="app">
 
-        <div class="status-bar">
-            <span id="statusConexao">Verificando conexão...</span>
-            <span id="statusSync"></span>
+    <header class="topo">
+        <div>
+            <h1>🏗️ Obra Estoque</h1>
+            <p class="subtitulo">Controle inteligente de materiais</p>
         </div>
 
-        <label>Selecionar Obra:</label>
+        <div id="statusConexao" class="status">
+            🟢 Online
+        </div>
+    </header>
+
+    <section class="dashboard">
+
+        <div class="cardDash">
+            <span>Pendentes</span>
+            <strong id="totalPendentes">0</strong>
+        </div>
+
+        <div class="cardDash">
+            <span>Hoje</span>
+            <strong id="movHoje">0</strong>
+        </div>
+
+        <div class="cardDash">
+            <span>Última Sync</span>
+            <strong id="ultimaSync">--:--</strong>
+        </div>
+
+    </section>
+
+    <section class="bloco">
+
+        <label>🏗️ Selecionar Obra</label>
+
         <select id="obraSelect"></select>
 
-        <label>Buscar Material:</label>
-        <input type="text" id="buscaMaterial" placeholder="Digite código ou nome do material...">
+    </section>
+
+    <section class="bloco">
+
+        <label>🔎 Buscar Material</label>
+
+        <input
+            type="text"
+            id="buscaMaterial"
+            placeholder="Digite código ou descrição..."
+            autocomplete="off"
+        >
 
         <div id="resultadoBusca"></div>
 
-        <div id="formMovimentacao" style="display:none;">
-            <h3 id="materialSelecionado"></h3>
+    </section>
 
-            <label>Tipo:</label>
-            <select id="tipoMov">
-                <option value="E">Entrada</option>
-                <option value="S">Saída</option>
-            </select>
+    <section id="materialCard" class="materialCard hidden">
 
-            <label>Quantidade:</label>
-            <input type="number" id="quantidade" placeholder="Quantidade">
-
-            <label>Preço Unitário:</label>
-            <input type="number" id="preco" placeholder="Preço unitário">
-
-            <label>Observações:</label>
-            <input type="text" id="obs" placeholder="Observações">
-
-            <button onclick="salvarMovimentacao()">Salvar Movimentação</button>
+        <div class="materialTopo">
+            <h2 id="materialTitulo">Material</h2>
+            <span id="materialUnidade">UN</span>
         </div>
 
-        <hr>
+        <p id="materialCodigo"></p>
 
-        <h2>🕘 Histórico Recente</h2>
+    </section>
+
+    <section id="formMovimentacao" class="hidden">
+
+        <div class="tipoContainer">
+
+            <button class="tipoBtn entrada active" onclick="selecionarTipo('E')">
+                ➕ Entrada
+            </button>
+
+            <button class="tipoBtn saida" onclick="selecionarTipo('S')">
+                ➖ Saída
+            </button>
+
+        </div>
+
+        <input type="hidden" id="tipoMov" value="E">
+
+        <div class="grid">
+
+            <div>
+                <label>Quantidade</label>
+                <input type="number" id="quantidade">
+            </div>
+
+            <div>
+                <label>Preço Unit.</label>
+                <input type="number" id="preco">
+            </div>
+
+        </div>
+
+        <label>Observação</label>
+
+        <textarea id="obs"></textarea>
+
+        <button class="btnSalvar" onclick="salvarMovimentacao()">
+            💾 Salvar Movimentação
+        </button>
+
+    </section>
+
+    <section class="historicoBox">
+
+        <h2>🕒 Histórico Recente</h2>
+
         <div id="historico"></div>
-    </div>
 
-    <script src="https://unpkg.com/dexie@3.2.4/dist/dexie.js"></script>
-    <script src="app.js"></script>
+    </section>
 
-    <script>
-    if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('./sw.js');
-}
-</script>
+</div>
+
+<script src="app.js"></script>
 
 </body>
 </html>
