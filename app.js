@@ -1,4 +1,5 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbyJ-6pGpbsIfZTHuMSz-PgezoziZSYZjCy5Nsd5MYHU1wn941915PnT2C92Vb2It1R8/exec';
+
 const CHAVE = 'obra123teste';
 
 const db = new Dexie("ObraEstoqueDB");
@@ -16,28 +17,47 @@ window.onload = async function(){
 
     atualizarStatusConexao();
 
-    await carregarObras();
-    await carregarMateriais();
-    await carregarHistorico();
+    window.addEventListener(
+        'online',
+        atualizarStatusConexao
+    );
 
-    window.addEventListener('online', sincronizarPendentes);
+    window.addEventListener(
+        'offline',
+        atualizarStatusConexao
+    );
 
-    setInterval(atualizarStatusConexao,3000);
+    window.addEventListener(
+        'online',
+        sincronizarPendentes
+    );
+
+    await Promise.all([
+        carregarObras(),
+        carregarMateriais(),
+        carregarHistorico()
+    ]);
+
 };
 
 function atualizarStatusConexao(){
-    document.getElementById("statusConexao").innerText =
-        navigator.onLine ? "🟢 Online" : "🔴 Offline";
+
+    document.getElementById(
+        "statusConexao"
+    ).innerText =
+        navigator.onLine
+            ? "🟢 Online"
+            : "🔴 Offline";
+
 }
 
 async function carregarObras(){
 
-    let select = document.getElementById("obraSelect");
-
     try{
 
-        // Primeiro tenta cache local
-        let obrasLocal = await db.obrasCache.toArray();
+        // CACHE PRIMEIRO
+        let obrasLocal =
+            await db.obrasCache.toArray();
 
         if(obrasLocal.length > 0){
 
@@ -45,8 +65,10 @@ async function carregarObras(){
 
         }
 
-        // Atualiza online
-        let resp = await fetch(`${API_URL}?chave=${CHAVE}&action=obras`);
+        // ONLINE DEPOIS
+        let resp = await fetch(
+            `${API_URL}?chave=${CHAVE}&action=obras`
+        );
 
         let obras = await resp.json();
 
@@ -55,44 +77,55 @@ async function carregarObras(){
         for(let o of obras){
 
             await db.obrasCache.put({
-                id:o[0],
-                nome:o[1]
+                id: String(o[0]),
+                nome: String(o[1])
             });
 
         }
 
-        preencherObras(await db.obrasCache.toArray());
+        let obrasAtualizadas =
+            await db.obrasCache.toArray();
+
+        preencherObras(obrasAtualizadas);
 
     }catch(e){
 
-        console.log("Usando obras do cache");
+        console.log(
+            "Usando cache local das obras"
+        );
 
     }
 }
 
 function preencherObras(obras){
 
-    let select = document.getElementById("obraSelect");
+    let select =
+        document.getElementById("obraSelect");
 
     select.innerHTML = "";
 
     obras.forEach(o=>{
 
-        let op = document.createElement("option");
+        let op =
+            document.createElement("option");
 
         op.value = o.id;
+
         op.textContent = o.nome;
 
         select.appendChild(op);
 
     });
+
 }
 
 async function carregarMateriais(){
 
     try{
 
-        let resp = await fetch(`${API_URL}?chave=${CHAVE}&action=insumos`);
+        let resp = await fetch(
+            `${API_URL}?chave=${CHAVE}&action=insumos`
+        );
 
         let mats = await resp.json();
 
@@ -101,87 +134,130 @@ async function carregarMateriais(){
         for(let m of mats){
 
             await db.materiaisCache.put({
-                codigo:String(m[0]),
-                descricao:String(m[1]),
-                categoria:String(m[2]),
-                unidade:String(m[3])
+
+                codigo: String(m[0] || ''),
+
+                descricao: String(m[1] || ''),
+
+                categoria: String(m[2] || ''),
+
+                unidade: String(m[3] || '')
+
             });
 
         }
 
     }catch(e){
 
-        console.log("Materiais carregados do cache local");
+        console.log(
+            "Materiais carregados do cache local"
+        );
 
     }
 }
 
-document.getElementById("buscaMaterial")
-.addEventListener("keyup", async function(){
+document
+.getElementById("buscaMaterial")
+.addEventListener(
+    "keyup",
+    async function(){
 
-    let termo = this.value.toLowerCase();
+        let termo =
+            this.value
+            .toLowerCase()
+            .trim();
 
-    if(termo.length < 1){
-
-        document.getElementById("resultadoBusca").innerHTML = "";
-
-        return;
-    }
-
-    let todos = await db.materiaisCache.toArray();
-
-    let filtrados = todos.filter(m =>
-
-        m.codigo.toLowerCase().includes(termo) ||
-        m.descricao.toLowerCase().includes(termo)
-
-    ).slice(0,15);
-
-    let container = document.getElementById("resultadoBusca");
-
-    container.innerHTML = "";
-
-    filtrados.forEach(m=>{
-
-        let div = document.createElement("div");
-
-        div.className = "itemBusca";
-
-        div.innerHTML =
-            `${m.codigo} - ${m.descricao} (${m.unidade})`;
-
-        // CORREÇÃO DO CLIQUE
-        div.addEventListener("click", function(){
-
-            selecionarMaterial(
-                m.codigo,
-                m.descricao,
-                m.unidade
+        let resultado =
+            document.getElementById(
+                "resultadoBusca"
             );
+
+        if(termo.length < 1){
+
+            resultado.innerHTML = "";
+
+            return;
+
+        }
+
+        let todos =
+            await db.materiaisCache.toArray();
+
+        let filtrados =
+            todos.filter(m =>
+
+                m.codigo
+                .toLowerCase()
+                .includes(termo)
+
+                ||
+
+                m.descricao
+                .toLowerCase()
+                .includes(termo)
+
+            )
+            .slice(0,15);
+
+        resultado.innerHTML = "";
+
+        filtrados.forEach(m=>{
+
+            let div =
+                document.createElement("div");
+
+            div.className = "itemBusca";
+
+            // textContent resolve bug das aspas
+            div.textContent =
+                `${m.codigo} - ${m.descricao} (${m.unidade})`;
+
+            // clique seguro
+            div.addEventListener(
+                "click",
+                function(){
+
+                    selecionarMaterial(
+                        String(m.codigo),
+                        String(m.descricao),
+                        String(m.unidade)
+                    );
+
+                }
+            );
+
+            resultado.appendChild(div);
 
         });
 
-        container.appendChild(div);
+    }
+);
 
-    });
-
-});
-
-function selecionarMaterial(cod,desc,un){
+function selecionarMaterial(
+    cod,
+    desc,
+    un
+){
 
     materialAtual = {
-        codigo:cod,
-        descricao:desc,
-        unidade:un
+        codigo: cod,
+        descricao: desc,
+        unidade: un
     };
 
-    document.getElementById("materialSelecionado").innerText =
+    document.getElementById(
+        "materialSelecionado"
+    ).innerText =
         `${cod} - ${desc} (${un})`;
 
-    document.getElementById("formMovimentacao").style.display =
-        "block";
+    document.getElementById(
+        "formMovimentacao"
+    ).style.display = "block";
 
-    document.getElementById("resultadoBusca").innerHTML = "";
+    document.getElementById(
+        "resultadoBusca"
+    ).innerHTML = "";
+
 }
 
 async function salvarMovimentacao(){
@@ -191,6 +267,23 @@ async function salvarMovimentacao(){
         alert("Selecione um material");
 
         return;
+
+    }
+
+    let quantidade =
+        document.getElementById(
+            "quantidade"
+        ).value;
+
+    if(
+        !quantidade ||
+        Number(quantidade) <= 0
+    ){
+
+        alert("Informe a quantidade");
+
+        return;
+
     }
 
     let mov = {
@@ -198,7 +291,9 @@ async function salvarMovimentacao(){
         chave: CHAVE,
 
         id_obra:
-            document.getElementById("obraSelect").value,
+            document.getElementById(
+                "obraSelect"
+            ).value,
 
         cod_insumo:
             materialAtual.codigo,
@@ -207,41 +302,58 @@ async function salvarMovimentacao(){
             materialAtual.descricao,
 
         tipo:
-            document.getElementById("tipoMov").value,
+            document.getElementById(
+                "tipoMov"
+            ).value,
 
         quantidade:
-            document.getElementById("quantidade").value,
+            quantidade,
 
         preco_unit:
-            document.getElementById("preco").value,
+            document.getElementById(
+                "preco"
+            ).value || 0,
 
         obs:
-            document.getElementById("obs").value,
+            document.getElementById(
+                "obs"
+            ).value || '',
 
         data:
-            new Date().toLocaleString()
+            new Date()
+            .toLocaleString()
 
     };
 
-    // HISTÓRICO IMEDIATO
+    // salva no histórico imediatamente
     await db.historicoLocal.add(mov);
+
+    // força IndexedDB concluir escrita
+    await db.historicoLocal.toArray();
 
     if(navigator.onLine){
 
         try{
 
-            await fetch(API_URL,{
-                method:"POST",
-                body:JSON.stringify(mov)
-            });
+            await fetch(
+                API_URL,
+                {
+                    method:"POST",
+                    body: JSON.stringify(mov)
+                }
+            );
 
-            alert("Movimentação salva com sucesso");
+            alert(
+                "Movimentação salva com sucesso"
+            );
 
         }catch(e){
 
             await db.filaSync.add(mov);
 
-            alert("Internet instável. Ficou pendente.");
+            alert(
+                "Internet instável. Ficou pendente."
+            );
 
         }
 
@@ -249,41 +361,53 @@ async function salvarMovimentacao(){
 
         await db.filaSync.add(mov);
 
-        alert("Offline. Movimentação guardada.");
+        alert(
+            "Offline. Movimentação guardada."
+        );
 
     }
 
     limparFormulario();
 
     await carregarHistorico();
+
 }
 
 async function sincronizarPendentes(){
 
-    let pendentes = await db.filaSync.toArray();
+    let pendentes =
+        await db.filaSync.toArray();
 
     for(let p of pendentes){
 
         try{
 
-            await fetch(API_URL,{
-                method:"POST",
-                body:JSON.stringify(p)
-            });
+            await fetch(
+                API_URL,
+                {
+                    method:"POST",
+                    body:JSON.stringify(p)
+                }
+            );
 
             await db.filaSync.delete(p.id);
 
         }catch(e){
 
-            console.log("Ainda pendente");
+            console.log(
+                "Ainda existem pendências"
+            );
 
         }
+
     }
+
 }
 
 async function carregarHistorico(){
 
-    let hist = await db.historicoLocal
+    let hist =
+        await db.historicoLocal
         .orderBy('id')
         .reverse()
         .limit(20)
@@ -300,16 +424,24 @@ async function carregarHistorico(){
             <b>${h.data}</b><br>
 
             Material:
-            ${h.material_desc || h.cod_insumo}<br>
+            ${h.material_desc || h.cod_insumo}
+            <br>
 
             Tipo:
-            ${h.tipo == 'E' ? 'Entrada' : 'Saída'}<br>
+            ${
+                h.tipo == 'E'
+                ? 'Entrada'
+                : 'Saída'
+            }
+            <br>
 
             Quantidade:
-            ${h.quantidade}<br>
+            ${h.quantidade}
+            <br>
 
             Preço:
-            R$ ${h.preco_unit}<br>
+            R$ ${h.preco_unit}
+            <br>
 
             Obs:
             ${h.obs || '-'}
@@ -317,19 +449,33 @@ async function carregarHistorico(){
         </div>
 
         `;
+
     });
 
-    document.getElementById("historico").innerHTML = html;
+    document.getElementById(
+        "historico"
+    ).innerHTML = html;
+
 }
 
 function limparFormulario(){
 
-    document.getElementById("quantidade").value = "";
+    materialAtual = null;
 
-    document.getElementById("preco").value = "";
+    document.getElementById(
+        "quantidade"
+    ).value = "";
 
-    document.getElementById("obs").value = "";
+    document.getElementById(
+        "preco"
+    ).value = "";
 
-    document.getElementById("formMovimentacao").style.display =
-        "none";
+    document.getElementById(
+        "obs"
+    ).value = "";
+
+    document.getElementById(
+        "formMovimentacao"
+    ).style.display = "none";
+
 }
